@@ -26,6 +26,9 @@ class Encoder_RGBT_Efficientvit(nn.Module):
             self.enc_t = efficientvit_backbone_b1()
             self.enc_rgb.init_weights(
                 pretrained="/home/zhangquan/clg/efficientvit_b1_r288.pt")
+            # self.enc_rgb.eval()
+            # self.enc_rgb.requires_grad = False
+            # print("True########################################################")
                 # pretrained=None)
             self.enc_t.init_weights(
                 pretrained="/home/zhangquan/clg/efficientvit_b1_r288.pt")

@@ -12,10 +12,10 @@ if __name__ == '__main__':
         There is an "infrared" directory at the same level as the "visible" directory. 
         The principle is to replace "visible" with "infrared" and load the dual-spectrum data.
     '''
-    model = YOLO(r"runs/LLVIP/LLVIP-yolov8-RGBRGB6C-midfusion/weights/best.pt") # select your model.pt path
-    model.predict(source=r'E:\BaiduNetdiskDownload\RGB_IF\LLVIP\LLVIP\images\visible\trainval',
+    model = YOLO(r"/home/zhangquan/clg/YOLOv11-RGBT-master/exp/AntiUAV-yolo11n-100epoch-RGBRGB6C-midfusion-cmssm/weights/best.pt") # select your model.pt path
+    model.predict(source=r'/home/zhangquan/clg/Anti-UAV-RGBT-640/visible/test',
                   imgsz=640,
-                  project='runs/detect',
+                  project='runs/detect/cmssm',
                   name='exp',
                   show=False,
                   save_frames=True,
@@ -23,5 +23,5 @@ if __name__ == '__main__':
                   channels=6,
                   save=True,
                   # conf=0.2,
-                  # visualize=True # visualize model features maps
+                  visualize=True # visualize model features maps
                 )
