@@ -39,7 +39,7 @@ class BaseDataset(Dataset):
         fraction (float): Fraction of dataset to utilize. Default is 1.0 (use all data).
 
     Attributes:
-        im_files (list): List of image file paths.
+        im_files (list): List of image file paths.   
         labels (list): List of label data dictionaries.
         ni (int): Number of images in the dataset.
         ims (list): List of loaded images.
@@ -74,8 +74,8 @@ class BaseDataset(Dataset):
         self.single_cls = single_cls
         self.prefix = prefix
         self.fraction = fraction
-        self.im_files = self.get_img_files(self.img_path)
-        self.labels = self.get_labels()
+        self.im_files = self.get_img_files(self.img_path)  #所有图像路径列表,rgb模态的
+        self.labels = self.get_labels()  #所有标签列表
         self.update_labels(include_class=classes)  # single_cls and include_class
         self.ni = len(self.labels)  # number of images
         self.rect = rect

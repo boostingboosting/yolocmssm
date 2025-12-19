@@ -93,7 +93,7 @@ def verify_image(args):
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
     return (im_file, cls), nf, nc, msg
 
-
+#获取lable
 def verify_image_label(args):
     """Verify one image-label pair."""
     im_file, lb_file, prefix, keypoint, num_cls, nkpt, ndim = args
@@ -116,14 +116,25 @@ def verify_image_label(args):
 
         # Verify labels
         if os.path.isfile(lb_file):
+            lb_rgb = lb_file
+            lb_file = lb_file.replace("visible", "infrared") #使用热红外做标签
             nf = 1  # label found
-            with open(lb_file) as f:
+            # print("lb_file:", lb_file, "11111111111111111111111111") #/media/data5/zhangquan/clg/Anti-UAV-RGBT-640/visible/train/20190925_130434_1_3_visibleI0610.txt 11111111111111111111111111
+            with open(lb_file) as f, open(lb_rgb) as f_rgb:
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
+                lb_rgb = [x.split() for x in f_rgb.read().strip().splitlines() if len(x)]
                 if any(len(x) > 6 for x in lb) and (not keypoint):  # is segment
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
                     segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
                 lb = np.array(lb, dtype=np.float32)
+                lb_rgb = np.array(lb_rgb, dtype=np.float32)
+                
+                # lb = np.concatenate([lb, lb_rgb], axis=1)
+                # lb = [vis + ir for vis, ir in zip(lb, lb_rgb)]
+                # print("lb[0]:", len(lb), "555555555555555555555555")
+                # print("lb:", lb)
+                # print("lb.shape:", lb.shape)  #[1,10]
             if nl := len(lb):
                 if keypoint:
                     assert lb.shape[1] == (5 + nkpt * ndim), f"labels require {(5 + nkpt * ndim)} columns each"
@@ -149,20 +160,35 @@ def verify_image_label(args):
             else:
                 ne = 1  # label empty
                 lb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 5), dtype=np.float32)
+                lb_rgb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 5), dtype=np.float32)
+                # lb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 10), dtype=np.float32)
+
+            if nl_ir := len(lb_rgb):
+                _, i = np.unique(lb_rgb, axis=0, return_index=True)
+                if len(i) < nl_ir:  # duplicate row check
+                    lb_rgb = lb_rgb[i]  # remove duplicates
+                    msg = f"{prefix}WARNING ⚠️ infrared {im_file}: {nl_ir - len(i)} duplicate labels removed"
+            else:
+                ne_ir = 1  # label empty
+                lb_rgb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 5), dtype=np.float32)
         else:
             nm = 1  # label missing
             lb = np.zeros((0, (5 + nkpt * ndim) if keypoints else 5), dtype=np.float32)
+            lb_rgb = np.zeros((0, (5 + nkpt * ndim) if keypoints else 5), dtype=np.float32)
+            # lb = np.zeros((0, (5 + nkpt * ndim) if keypoints else 10), dtype=np.float32)
         if keypoint:
             keypoints = lb[:, 5:].reshape(-1, nkpt, ndim)
             if ndim == 2:
                 kpt_mask = np.where((keypoints[..., 0] < 0) | (keypoints[..., 1] < 0), 0.0, 1.0).astype(np.float32)
                 keypoints = np.concatenate([keypoints, kpt_mask[..., None]], axis=-1)  # (nl, nkpt, 3)
         lb = lb[:, :5]
-        return im_file, lb, shape, segments, keypoints, nm, nf, ne, nc, msg
+        lb_rgb = lb_rgb[:, :5]
+        # lb = lb[:, :10]
+        return im_file, lb, shape, segments, keypoints, nm, nf, ne, nc, msg, lb_rgb
     except Exception as e:
         nc = 1
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
-        return [None, None, None, None, None, nm, nf, ne, nc, msg]
+        return [None, None, None, None, None, nm, nf, ne, nc, msg, lb_rgb]
 
 
 def visualize_image_annotations(image_path, txt_path, label_map):

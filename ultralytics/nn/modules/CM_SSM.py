@@ -30,7 +30,7 @@ class CMSSM(nn.Module):
             self.encoder = Encoder_Efficientvit(mode=mode)
         if inputs == 'rgbt':
             self.encoder = Encoder_RGBT_Efficientvit(mode=mode)
-            self.adjuster = RGBAdjuster(channels=channels)
+            self.adjuster = RGBAdjuster(channels=channels[1:])
             self.fusion_module = Fusion_Module(fusion_mode=fusion_mode, channels=channels)
         # self.decoder = Detector_AntiUAV(in_channels=channels, embed_dim=emb_c, num_classes=n_class)
         # self.decoder = Decoder_MLP(in_channels=channels, embed_dim=emb_c, num_classes=n_class)
@@ -47,7 +47,7 @@ class CMSSM(nn.Module):
             fusions = self.encoder(rgb)
         else:
             f_rgb, f_t = self.encoder(rgb, t)
-            f_rgb, f_t, txtys = self.adjuster(rgb, t)
+            f_rgb, f_t, txtys = self.adjuster(f_rgb[1:], f_t[1:])
             # print("f_rgb.shape",f_rgb[0].shape)#([1, 32, 64, 64])
             # print("f_rgb.shape",f_rgb[1].shape)#([1, 64, 32, 32])
             # print("f_rgb.shape",f_rgb[2].shape)#([1, 128, 16, 16])
@@ -58,6 +58,11 @@ class CMSSM(nn.Module):
         # print("fusion.shape",fusions[2].shape)#([1, 128, 16, 16])
         # print("fusion.shape",fusions[3].shape)#([1, 256, 8, 8])
 
+        # print("len(txtys):", len(txtys))
+        # print("txtys:", txtys)
+        # print("txtys[0].shape:", txtys[0].shape) #[B,2]
+        # print("txtys[1].shape:", txtys[1].shape)
+        # print("txtys[2].shape:", txtys[2].shape)
         return fusions,txtys
         
 

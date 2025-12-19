@@ -371,12 +371,12 @@ class DetectionModel(BaseModel):
 
             # m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
             try:
-                m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward on CPU
+                m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))[:3]])  # forward on CPU
             except RuntimeError:
                 try:
                     self.model.to(torch.device('cuda'))
                     m.stride = torch.tensor([s / x.shape[-2] for x in _forward(
-                        torch.zeros(1, ch, s, s).to(torch.device('cuda')))])  # forward on CUDA
+                        torch.zeros(1, ch, s, s).to(torch.device('cuda')))[:3]])  # forward on CUDA
                 except RuntimeError as error:
                     raise error
 

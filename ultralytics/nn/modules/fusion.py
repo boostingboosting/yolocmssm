@@ -86,11 +86,11 @@ class Fusion_Module(nn.Module):
         #         self.fusion.append(TSFA(channel))
 
         if self.fusion_mode == 'CM-SSM':
-            for channel in channels:
+            for channel in channels[1:]:
                 self.fusion.append(CM_SSM(channel))
 
         if self.fusion_mode.endswith("align"): ##先对齐，再融合
-            for channel in channels:
+            for channel in channels[1:]:
                 self.fusion.append(CM_SSM(channel, rgb_residual=False))
 
 
@@ -113,7 +113,7 @@ class Fusion_Module(nn.Module):
         if self.fusion_mode == 'MDFusion':
             outs = self.fusion(rgb, t)
 
-        for i in range(4):
+        for i in range(len(t)):
             if self.fusion_mode == 'add':
                 outs.append(rgb[i] + t[i])
 
@@ -218,21 +218,19 @@ class AffinePredictor(nn.Module):
         self.bias_tx = nn.Parameter(torch.tensor([0.0]))
         self.bias_ty = nn.Parameter(torch.tensor([0.0]))
     
-    def forward(self, fused):    
-        affine_params = []     
-        theta_raw = self.affine_heads(fused)  # [B, 6]
+    def forward(self, fused):      
+        affine_params_raw = self.affine_heads(fused)  # [B, 6]
         
         # 5. 应用物理先验约束（确保参数合理）
-        a = F.sigmoid(theta_raw[:, 0]) * self.scale_a + self.bias_a
-        b = torch.tanh(theta_raw[:, 1]) * self.scale_b + self.bias_b
-        c = torch.tanh(theta_raw[:, 2]) * self.scale_c + self.bias_c
-        d = F.sigmoid(theta_raw[:, 3]) * self.scale_d + self.bias_d
-        tx = torch.tanh(theta_raw[:, 4]) * self.scale_tx + self.bias_tx
-        ty = torch.tanh(theta_raw[:, 5]) * self.scale_ty + self.bias_ty
+        a = F.sigmoid(affine_params_raw[:, 0]) * self.scale_a + self.bias_a
+        b = torch.tanh(affine_params_raw[:, 1]) * self.scale_b + self.bias_b
+        c = torch.tanh(affine_params_raw[:, 2]) * self.scale_c + self.bias_c
+        d = F.sigmoid(affine_params_raw[:, 3]) * self.scale_d + self.bias_d
+        tx = torch.tanh(affine_params_raw[:, 4]) * self.scale_tx + self.bias_tx
+        ty = torch.tanh(affine_params_raw[:, 5]) * self.scale_ty + self.bias_ty
         
         # 拼接成6参数
-        theta = torch.stack([a, b, c, d, tx, ty], dim=1)
-        affine_params.append(theta)
+        affine_params = torch.stack([a, b, c, d, tx, ty], dim=1)
     
         return affine_params
 
@@ -278,12 +276,14 @@ class RGBAdjuster(nn.Module):
 
         for in_ch in channels:
             self.affine_heads.append(AffinePredictor(in_ch))
-            self.offset_heads.append(LocalOffsetPredictor(in_ch))
+            self.offset_heads.append(LocalOffsetPredictor(in_ch*2))
 
     def forward(self, rgb_feats, ir_feats):
         txtys = []
         wraped_rgb_feats = []
+        # print("len(ir_feats):",len(ir_feats))
         for i in range(len(ir_feats)):
+            # print("rgb_feats[i].shape:",rgb_feats[i].shape)
             # 1. 预测RGB权重图（无人机置信度）,每个像素上是否是无人机
             weight_map = self.weight_heads[i](rgb_feats[i])  # [B, 1, H, W]
             
@@ -294,16 +294,18 @@ class RGBAdjuster(nn.Module):
             fused = torch.cat([ir_feats[i], weighted_rgb], dim=1)  # [B, 2*C, H, W] 
 
             # 4. 偏移预测
-            affine_params = self.affine_heads(fused)
-            txtys.append(affine_params[4:])
-            offsets = self.offset_heads(fused)
+            affine_params = self.affine_heads[i](fused)
+            # print("affine_params.shape:", affine_params.shape) #[B,6]
+            txtys.append(affine_params[:, 4:])
+            offsets = self.offset_heads[i](fused)
+            # print("rgb_feats[i].shape:",rgb_feats[i].shape)
+            wraped_rgb_feats.append(self.warp_features(ir_feats[i], rgb_feats[i], affine_params, offsets))
 
-            wraped_rgb_feats[i].append(self.warp_features(ir_feats[i], rgb_feats[i], affine_params, offsets))
-
+        # print("txtys:", txtys)
         return wraped_rgb_feats, ir_feats, txtys
 
     #应用偏移到图像
-    def warp_features(ir_feats, rgb_feats, affine_params, offsets):
+    def warp_features(self, ir_feats, rgb_feats, affine_params, offsets):
         """
         对RGB特征图进行矫正，保持尺寸不变
         ir_feats: list of [B, C, H, W] (IR特征)
@@ -313,37 +315,32 @@ class RGBAdjuster(nn.Module):
         Returns: 
             warped_rgb_feats: list of [B, C, H, W] (矫正后的RGB特征)
         """
-        warped_rgb_feats = []
         
-        for i in range(len(ir_feats)):
-            B, C, H, W = rgb_feats[i].shape
-            
-            # 1. 应用仿射变换 (得到基础对齐)
-            theta = affine_params[i]  # [B, 6]
-            theta = theta.view(-1, 2, 3)  # [B, 2, 3]
-            
-            # 生成仿射网格 (归一化坐标 [-1,1])
-            grid = F.affine_grid(theta, size=[B, C, H, W], align_corners=True)
-            
-            # 2. 应用局部偏移 (在仿射网格上叠加)
-            offset = offsets[i]  # [B, 2, H, W]
-            offset = offset.permute(0, 2, 3, 1)  # [B, H, W, 2]
-            
-            # 转换为归一化坐标偏移 ([-1,1]范围)
-            offset_norm = offset * 2.0 / max(H, W)  # 归一化到[-1,1]
-            final_grid = grid + offset_norm
-            
-            # 3. 采样矫正后的RGB特征
-            warped = F.grid_sample(
-                rgb_feats[i], 
-                final_grid, 
-                align_corners=True, 
-                mode='bilinear'
-            )
-            
-            warped_rgb_feats.append(warped)
+        B, C, H, W = rgb_feats.shape
         
-        return warped_rgb_feats
+        # 1. 应用仿射变换 (得到基础对齐)
+        affine_params = affine_params.view(-1, 2, 3)  # [B, 2, 3]
+        
+        # 生成仿射网格 (归一化坐标 [-1,1])
+        grid = F.affine_grid(affine_params, size=[B, C, H, W], align_corners=True)
+        
+        # 2. 应用局部偏移 (在仿射网格上叠加)
+        offsets = offsets.permute(0, 2, 3, 1)  # [B, H, W, 2]
+        
+        # 转换为归一化坐标偏移 ([-1,1]范围)
+        offset_norm = offsets * 2.0   # 归一化到[-1,1]
+        final_grid = grid + offset_norm
+        
+        # 3. 采样矫正后的RGB特征
+        warped = F.grid_sample(
+            rgb_feats, 
+            final_grid, 
+            align_corners=True, 
+            mode='bilinear'
+        )
+        
+        
+        return warped
 
 
 # class CrossAttention(nn.Module):

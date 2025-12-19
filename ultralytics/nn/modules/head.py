@@ -39,7 +39,7 @@ class Detect(nn.Module):
         """Initializes the YOLO detection layer with specified number of classes and channels."""
         super().__init__()
         self.nc = nc  # number of classes
-        self.nl = len(ch)  # number of detection layers ##三层预测头
+        self.nl = len(ch)-1  # number of detection layers ##检测层数
         self.reg_max = 16  # DFL channels (ch[0] // 16 to scale 4/8/12/16/20 for n/s/m/l/x)
         self.no = nc + self.reg_max * 4  # number of outputs per anchor
         self.stride = torch.zeros(self.nl)  # strides computed during build
@@ -67,8 +67,14 @@ class Detect(nn.Module):
 
     def forward(self, x): #x为三层特征图+2个位置偏移量预测
         """Concatenates and returns predicted bounding boxes and class probabilities."""
+        # print("nl:",self.nl)
+        # print("len(x):",len(x))
+        # print("len(x[3]):", len(x[3]))
+        # print("x[3][0].shape:", x[3][0].shape)
+        # print("x[3][3].shape:", x[3][1].shape)
+        # print("x[3][2].shape:", x[3][2].shape)
         if self.end2end:
-            return self.forward_end2end(x)
+            return self.forward_end2end(x[:3])+x[3]
 
         for i in range(self.nl):#三层预测头
             v2 = self.cv2[i](x[i])
@@ -79,8 +85,8 @@ class Detect(nn.Module):
             # print("Detectx[i]",x[i].shape)
         if self.training:  # Training path
             return x
-        y = self._inference(x)
-        return y if self.export else (y, x)
+        y = self._inference(x[:3])
+        return y if self.export else (y, x[:3])
 
     def forward_end2end(self, x):
         """
