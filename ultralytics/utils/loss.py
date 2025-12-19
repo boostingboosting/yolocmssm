@@ -27,6 +27,7 @@ from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
 
 import math
+import numpy as np
 # 辅助头部分的代码从魔鬼面具v11代码里面复制，已和魔导沟通确认，具体请参考  https://github.com/z1069614715/objectdetection_script
 class SlideLoss(nn.Module):
     def __init__(self, loss_fcn):
@@ -476,7 +477,49 @@ class v8DetectionLoss:
 
     def compute_loss(self, preds, batch):
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
+        # print("len(preds):", len(preds))# 4
+        # print("preds[3][0].shape:",preds[3][0].shape) #[B,2]
+        # print("preds[3][1].shape:",preds[3][1].shape)
+        # print("preds[3][2].shape:",preds[3][2].shape)
+        # print("len(batch):", len(batch))
+        # print(preds)
+        # print(batch)
+        # print("batch.shape:",batch.shape)
+        preds, txty_preds = preds[:3], preds[3:]
+        # cls_rgb = [row[4:5] for row in batch['bboxes']]  # 
+        # xywh_ir = [row[5:] for row in batch['bboxes']]
+        # cls_rgb = batch['cls']
+        # xywh_rgb = [row[:4] for row in batch['bboxes']]
+        # print("batch['im_file'][0]:", batch['im_file'][0])
+        # print("batch['bboxes'][0]:", batch['bboxes'][0])
+        # print("batch['bboxes_rgb'][0]:", batch['bboxes_rgb'][0])
+        # print("len(batch['bboxes_rgb']):",len(batch['bboxes_rgb']))
+        # print("batch['bboxes_rgb']:", batch['bboxes_rgb'])
+        bboxes_np = np.stack([bbox.reshape(4) if bbox.shape[0] !=0 else np.zeros(4, dtype=np.float32) for bbox in batch['bboxes_rgb']])
+        batch['bboxes_rgb'] = torch.from_numpy(bboxes_np).to('cuda')
+        # 先排查cls_rgb的具体格式
+        # print("cls_rgb 整体类型:", type(batch['cls_rgb']))
+        # print("cls_rgb 长度:", len(batch['cls_rgb']))
+        # # 打印前5个元素的类型+内容（快速定位空值/格式问题）
+        # for i, cls in enumerate(batch['cls_rgb'][:16]):
+        #     print(f"第{i}个元素: 类型={type(cls)}, 内容={cls}, 形状（若数组）={cls.shape if isinstance(cls, np.ndarray) else '非数组'}")
+        # print("batch['cls_rgb']:", batch['cls_rgb'])
+        batch['cls_rgb'] = torch.from_numpy(np.array([0. if c.shape[0]==0 else c.item() for c in batch['cls_rgb']], dtype=np.float32)).reshape(-1,1).to('cuda')
+        # print("batch['cls_rgb']:", batch['cls_rgb'])
+        
+        # xywh_offset = [
+        #     [a - b for a, b in zip(row_a, row_b)] 
+        #     for row_a, row_b in zip(batch['bboxes'], batch['bboxes_rgb'])]
+        # xywh_offset = batch['bboxes'] - batch['bboxes_rgb']#rgb相对于红外图像目标中心的偏移量。加上偏移量以调整rgb
+
+        # print("len(batch['bboxes_rgb']:", len(batch['bboxes_rgb']))
+        # print("len(batch['bboxes_rgb'][0]):", len(batch['bboxes_rgb'][0]))
+        # print("len(xywh_offset):", len(xywh_offset))
+        # print("len(xywh_offset[0])", len(xywh_offset[0]))
+
+
         loss = torch.zeros(3, device=self.device)  # box, cls, dfl
+        # loss = torch.zeros(4, device=self.device)  # box, cls, dfl, offset
         feats = preds[1] if isinstance(preds, tuple) else preds
         feats = feats[:self.stride.size(0)]
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
@@ -491,10 +534,11 @@ class v8DetectionLoss:
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
 
         # targets
+        # targets = torch.cat((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), batch['bboxes']), 1)
         targets = torch.cat((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), batch['bboxes']), 1)
-        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]]) #xywh转为xyxy
         gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
-        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0)
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0)#只有xyxy加和>0的才是有效目标
 
         # pboxes
         pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
@@ -572,9 +616,14 @@ class v8DetectionLoss:
                 auto_iou = -1
             loss[1] = self.bce(pred_scores, target_scores.to(dtype), auto_iou).sum() / target_scores_sum  # BCE
 
+        ## offset loss
+        # loss[3] = self.compute_offset_loss(txty_preds, xywh_offset[:,:2], batch['bboxes'])
+        # print("self.hyp.offset:", self.hyp.offset)  #0.1
+
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
+        # loss[3] *= self.hyp.offset  # dfl gain
         return loss, batch_size
 
     def compute_loss_aux(self, preds, batch):
@@ -657,6 +706,25 @@ class v8DetectionLoss:
         # return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
         return loss, batch_size
 
+    def compute_offset_loss(self, txtys, targets, boxes_ir):
+        """计算约束后的损失（参数在合理范围内）"""
+        loss_offset = 0.0
+        
+        for i in range(len(txtys)):
+            offset_pred = txtys[i]  # [B, 6]
+            offset_gt = targets[i]  # [6]
+            
+            # 只监督平移部分（tx, ty）
+            loss_tx = torch.abs(offset_pred[0] - offset_gt[0])
+            loss_ty = torch.abs(offset_pred[1] - offset_gt[1])
+            
+            # 归一化：除以IR框面积（归一化面积 = w*h）
+            area = boxes_ir[2] * boxes_ir[3]  # [N]
+            area_mean = area.mean().clamp(min=1e-6)
+            
+            loss_offset += (loss_tx + loss_ty).mean() / area_mean
+        
+        return loss_offset
 
 # class v8DetectionLoss:
 #     """Criterion class for computing training losses."""
