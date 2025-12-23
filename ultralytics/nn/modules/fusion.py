@@ -85,13 +85,13 @@ class Fusion_Module(nn.Module):
         #     for channel in channels:
         #         self.fusion.append(TSFA(channel))
 
-        if self.fusion_mode == 'CM-SSM':
+        if self.fusion_mode == 'CM-SSM' or self.fusion_mode == 'CM-SSM-offset':
             for channel in channels[1:]:
                 self.fusion.append(CM_SSM(channel))
 
         if self.fusion_mode.endswith("align"): ##先对齐，再融合
             for channel in channels[1:]:
-                self.fusion.append(CM_SSM(channel, rgb_residual=False))
+                self.fusion.append(CM_SSM(channel))
 
 
         if self.fusion_mode == 'M-SSM':
@@ -148,7 +148,7 @@ class Fusion_Module(nn.Module):
 
 
             # Mamba4 is best
-            if self.fusion_mode in ['CM-SSM', 'M-SSM', 'MoE']:
+            if self.fusion_mode in ['CM-SSM', 'CM-SSM-offset', 'M-SSM', 'MoE']:
                 outs.append(self.fusion[i](rgb[i], t[i]))
 
             if self.fusion_mode.endswith("align"): ##先对齐，再融合

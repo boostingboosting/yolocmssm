@@ -24,14 +24,14 @@ from ultralytics import YOLO
 #                 )
 
 if __name__ == '__main__':
-    model = YOLO('ultralytics/cfg/models/11-RGBT/yolo11x-RGBT-midfusion-P3.yaml')  # 只是将yaml里面的 ch设置成 6 ,红外部分改为 SilenceChannel, [ 3,6 ] 即可
+    model = YOLO('ultralytics/cfg/models/11-RGBT/yolo11n-RGBT-midfusion-P3.yaml')  # 只是将yaml里面的 ch设置成 6 ,红外部分改为 SilenceChannel, [ 3,6 ] 即可
     # model.load(r'yolov8n.pt') # loading pretrain weights
     # model = YOLO("/home/zhangquan/clg/YOLOv11-RGBT-master/runs/AntiUAV/AntiUAV-150epoch-yolo11s-RGBRGB6C-midfusion-P3/weights/last.pt")
     model.train(data=R'ultralytics/cfg/datasets/AntiUAV-rgbt.yaml',
                 cache=False,
                 imgsz=640,
-                epochs=150,
-                batch=32,
+                epochs=100,
+                batch=64,
                 close_mosaic=0,
                 workers=64,
                 device='4,5,6,7',
@@ -43,5 +43,5 @@ if __name__ == '__main__':
                 use_simotm="RGBRGB6C",
                 channels=6,  #
                 project='runs/AntiUAV',
-                name='AntiUAV-150epoch-yolo11x-RGBRGB6C-midfusion-P3',
+                name='AntiUAV-yolo11n-RGBRGB6C-midfusion-P3',
                 )

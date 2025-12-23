@@ -123,13 +123,28 @@ def verify_image_label(args):
             with open(lb_file) as f, open(lb_rgb) as f_rgb:
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
                 lb_rgb = [x.split() for x in f_rgb.read().strip().splitlines() if len(x)]
+                # lb = [parts for x in f.read().strip().splitlines() if len(x) 
+                #     for parts in [x.split()] if len(parts) > 0]
+                # lb_rgb = [parts for x in f_rgb.read().strip().splitlines() if len(x) 
+                #     for parts in [x.split()] if len(parts) > 0]
                 if any(len(x) > 6 for x in lb) and (not keypoint):  # is segment
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
                     segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
                 lb = np.array(lb, dtype=np.float32)
                 lb_rgb = np.array(lb_rgb, dtype=np.float32)
-                
+
+                # print("len(lb):", len(lb), "lb:",lb)
+                # print("len(lb_rgb):", len(lb_rgb), "lb_rgb:",lb_rgb)
+                if len(lb) == 0 or len(lb_rgb) == 0:
+                    offset = np.array([0,0,0,0])
+                    area = np.array([0])
+                else:
+                    # print("lb[1:]:",lb[1:])
+                    # print("lb_rgb[1:]:",lb_rgb[1:])
+                    offset = lb[0][1:] -lb_rgb[0][1:]
+                    area = np.array([lb[0][3]*lb[0][4]])
+                # print("area:", area)
                 # lb = np.concatenate([lb, lb_rgb], axis=1)
                 # lb = [vis + ir for vis, ir in zip(lb, lb_rgb)]
                 # print("lb[0]:", len(lb), "555555555555555555555555")
@@ -160,35 +175,20 @@ def verify_image_label(args):
             else:
                 ne = 1  # label empty
                 lb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 5), dtype=np.float32)
-                lb_rgb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 5), dtype=np.float32)
-                # lb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 10), dtype=np.float32)
-
-            if nl_ir := len(lb_rgb):
-                _, i = np.unique(lb_rgb, axis=0, return_index=True)
-                if len(i) < nl_ir:  # duplicate row check
-                    lb_rgb = lb_rgb[i]  # remove duplicates
-                    msg = f"{prefix}WARNING ⚠️ infrared {im_file}: {nl_ir - len(i)} duplicate labels removed"
-            else:
-                ne_ir = 1  # label empty
-                lb_rgb = np.zeros((0, (5 + nkpt * ndim) if keypoint else 5), dtype=np.float32)
         else:
             nm = 1  # label missing
             lb = np.zeros((0, (5 + nkpt * ndim) if keypoints else 5), dtype=np.float32)
-            lb_rgb = np.zeros((0, (5 + nkpt * ndim) if keypoints else 5), dtype=np.float32)
-            # lb = np.zeros((0, (5 + nkpt * ndim) if keypoints else 10), dtype=np.float32)
         if keypoint:
             keypoints = lb[:, 5:].reshape(-1, nkpt, ndim)
             if ndim == 2:
                 kpt_mask = np.where((keypoints[..., 0] < 0) | (keypoints[..., 1] < 0), 0.0, 1.0).astype(np.float32)
                 keypoints = np.concatenate([keypoints, kpt_mask[..., None]], axis=-1)  # (nl, nkpt, 3)
         lb = lb[:, :5]
-        lb_rgb = lb_rgb[:, :5]
-        # lb = lb[:, :10]
-        return im_file, lb, shape, segments, keypoints, nm, nf, ne, nc, msg, lb_rgb
+        return im_file, lb, shape, segments, keypoints, nm, nf, ne, nc, msg, offset, area
     except Exception as e:
         nc = 1
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
-        return [None, None, None, None, None, nm, nf, ne, nc, msg, lb_rgb]
+        return [None, None, None, None, None, nm, nf, ne, nc, msg, offset, area]
 
 
 def visualize_image_annotations(image_path, txt_path, label_map):

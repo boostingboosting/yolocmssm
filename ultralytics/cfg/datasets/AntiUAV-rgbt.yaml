@@ -32,4 +32,4 @@ val: visible/test
 nc: 1
 
 # class names
-names: ["drone"]
+names: ["drone",]

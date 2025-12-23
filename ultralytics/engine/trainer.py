@@ -431,6 +431,9 @@ class BaseTrainer:
                 # Validation
                 if self.args.val or final_epoch or self.stopper.possible_stop or self.stop:
                     self.metrics, self.fitness = self.validate()
+                # print("self.metrics:",self.metrics)
+                # print("self.fitness:", self.fitness)
+                # print("self.label_loss_items(self.tloss):", self.label_loss_items(self.tloss))
                 self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics, **self.lr})
                 self.stop |= self.stopper(epoch + 1, self.fitness) or final_epoch
                 if self.args.time:

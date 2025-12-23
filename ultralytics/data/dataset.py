@@ -97,7 +97,7 @@ class YOLODataset(BaseDataset):
                 ),
             )
             pbar = TQDM(results, desc=desc, total=total)
-            for im_file, lb, shape, segments, keypoint, nm_f, nf_f, ne_f, nc_f, msg, lb_ir in pbar:
+            for im_file, lb, shape, segments, keypoint, nm_f, nf_f, ne_f, nc_f, msg, offset, area in pbar:
                 nm += nm_f
                 nf += nf_f
                 ne += ne_f
@@ -109,8 +109,8 @@ class YOLODataset(BaseDataset):
                             "shape": shape, #图像尺寸
                             "cls": lb[:, 0:1],  # n, 1
                             "bboxes": lb[:, 1:],  # n, 4  
-                            "cls_rgb": lb_ir[:, 0:1],  # n, 1
-                            "bboxes_rgb": lb_ir[:, 1:],  # n, 4
+                            "offset": offset,  # n, 2
+                            "area": area,
                             "segments": segments,
                             "keypoints": keypoint,
                             "normalized": True,
@@ -138,13 +138,13 @@ class YOLODataset(BaseDataset):
         self.label_files = img2label_paths(self.im_files)
         # print("self.label_files[0]:", self.label_files[0]) # /media/data5/zhangquan/clg/Anti-UAV-RGBT-640/visible/train/20190925_101846_1_1_visibleI0000.txt
         cache_path = Path(self.label_files[0]).parent.with_suffix(".cache")
-        cache, exists = self.cache_labels(cache_path), False  # run cache ops
-        # try:
-        #     cache, exists = load_dataset_cache_file(cache_path), True  # attempt to load a *.cache file
-        #     assert cache["version"] == DATASET_CACHE_VERSION  # matches current version
-        #     assert cache["hash"] == get_hash(self.label_files + self.im_files)  # identical hash
-        # except (FileNotFoundError, AssertionError, AttributeError):
-        #     cache, exists = self.cache_labels(cache_path), False  # run cache ops
+        # cache, exists = self.cache_labels(cache_path), False  # run cache ops
+        try:
+            cache, exists = load_dataset_cache_file(cache_path), True  # attempt to load a *.cache file
+            assert cache["version"] == DATASET_CACHE_VERSION  # matches current version
+            assert cache["hash"] == get_hash(self.label_files + self.im_files)  # identical hash
+        except (FileNotFoundError, AssertionError, AttributeError):
+            cache, exists = self.cache_labels(cache_path), False  # run cache ops
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop("results")  # found, missing, empty, corrupt, total

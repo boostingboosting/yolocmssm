@@ -86,7 +86,7 @@ class Detect(nn.Module):
         if self.training:  # Training path
             return x
         y = self._inference(x[:3])
-        return y if self.export else (y, x[:3])
+        return y if self.export else (y, x)
 
     def forward_end2end(self, x):
         """
